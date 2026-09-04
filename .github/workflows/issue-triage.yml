@@ -1,0 +1,138 @@
+name: Issue triage (Cursor)
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: issue-triage-${{ github.repository }}-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    # Only real issues (not PRs surfaced as issues)
+    if: github.event.issue.pull_request == null
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Cursor SDK
+        run: npm install --no-save @cursor/sdk
+
+      - name: Require CURSOR_API_KEY
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        run: |
+          if [ -z "${CURSOR_API_KEY}" ]; then
+            echo "::error::Missing repository secret CURSOR_API_KEY. Add it under Settings → Secrets and variables → Actions (from https://cursor.com/dashboard/integrations)."
+            exit 1
+          fi
+
+      - name: List allowed labels
+        id: labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LABELS=$(gh label list --repo "${{ github.repository }}" --limit 100 --json name --jq '[.[].name] | join(",")')
+          echo "allowed=$LABELS" >> "$GITHUB_OUTPUT"
+          echo "Allowed labels: $LABELS"
+
+      - name: Prepare issue payload
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          # Write title/body to files to avoid multiline env edge cases in later steps
+          printf '%s' "$ISSUE_TITLE" > /tmp/issue-title.txt
+          printf '%s' "${ISSUE_BODY:-}" > /tmp/issue-body.txt
+
+      - name: Run Cursor triage
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+          ALLOWED_LABELS: ${{ steps.labels.outputs.allowed }}
+          OUTPUT_PATH: triage-result.json
+          ISSUE_TITLE_FILE: /tmp/issue-title.txt
+          ISSUE_BODY_FILE: /tmp/issue-body.txt
+        run: node .github/scripts/triage-issue.mjs
+
+      - name: Apply labels and post diagnosis
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          if [ ! -f triage-result.json ]; then
+            echo "triage-result.json missing"
+            exit 1
+          fi
+
+          MARKER='<!-- cursor-issue-diagnosis -->'
+          LABELS=$(jq -r '.labels // [] | join(",")' triage-result.json)
+          DIAGNOSIS=$(jq -r '.diagnosis // empty' triage-result.json)
+
+          if [ -z "$DIAGNOSIS" ]; then
+            echo "Empty diagnosis; aborting comment"
+            exit 1
+          fi
+
+          if [ -n "$LABELS" ]; then
+            IFS=',' read -ra LABEL_ARR <<< "$LABELS"
+            ADD_ARGS=()
+            for L in "${LABEL_ARR[@]}"; do
+              L_TRIM=$(echo "$L" | xargs)
+              [ -n "$L_TRIM" ] && ADD_ARGS+=(--add-label "$L_TRIM")
+            done
+            if [ ${#ADD_ARGS[@]} -gt 0 ]; then
+              gh issue edit "$ISSUE_NUMBER" --repo "$REPO" "${ADD_ARGS[@]}"
+              echo "Applied labels: $LABELS"
+            fi
+          else
+            echo "No labels to apply"
+          fi
+
+          # Build comment body via jq for safe escaping
+          jq -n \
+            --arg marker "$MARKER" \
+            --arg diagnosis "$DIAGNOSIS" \
+            '{
+              body: (
+                $marker
+                + "\n\n"
+                + $diagnosis
+                + "\n\n---\n_Triage automático con Cursor. Este diagnóstico puede usarse como base para implementar la solución._\n"
+              )
+            }' > /tmp/diagnosis-comment.json
+
+          COMMENT_ID=$(gh api \
+            "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" \
+            --paginate \
+            --jq '.[] | select(.body | contains("<!-- cursor-issue-diagnosis -->")) | .id' \
+            | head -n1 || true)
+
+          if [ -n "${COMMENT_ID:-}" ]; then
+            gh api \
+              --method PATCH \
+              "repos/${REPO}/issues/comments/${COMMENT_ID}" \
+              --input /tmp/diagnosis-comment.json
+            echo "Updated diagnosis comment id=$COMMENT_ID"
+          else
+            gh api \
+              --method POST \
+              "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" \
+              --input /tmp/diagnosis-comment.json
+            echo "Created diagnosis comment"
+          fi
