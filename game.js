@@ -15,6 +15,13 @@ const COLORS = [
   '#ffb74d', // L - orange
 ];
 
+const THEME_GRID = {
+  dark: '#22222e',
+  light: '#d0d0dc'
+};
+
+let currentTheme = 'dark';
+
 const PIECES = [
   null,
   [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]], // I
@@ -169,7 +176,7 @@ function drawBlock(context, x, y, colorIndex, size, alpha) {
 }
 
 function drawGrid() {
-  ctx.strokeStyle = '#22222e';
+  ctx.strokeStyle = THEME_GRID[currentTheme];
   ctx.lineWidth = 0.5;
   for (let c = 1; c < COLS; c++) {
     ctx.beginPath();
@@ -301,4 +308,30 @@ document.addEventListener('keydown', e => {
 
 restartBtn.addEventListener('click', init);
 
+const themeToggle = document.getElementById('theme-toggle-input');
+const themeSwitch = themeToggle.parentElement;
+
+function applyTheme(theme) {
+  currentTheme = theme;
+  document.documentElement.dataset.theme = theme;
+  themeToggle.checked = theme === 'light';
+  themeSwitch.setAttribute('aria-checked', theme === 'light');
+  if (board) {
+    draw();
+    drawNext();
+  }
+}
+
+function initTheme() {
+  const savedTheme = localStorage.getItem('tetris-theme');
+  applyTheme(savedTheme || 'dark');
+}
+
+themeToggle.addEventListener('change', () => {
+  const newTheme = themeToggle.checked ? 'light' : 'dark';
+  localStorage.setItem('tetris-theme', newTheme);
+  applyTheme(newTheme);
+});
+
+initTheme();
 init();
