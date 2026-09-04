@@ -13,7 +13,7 @@
  *   ALLOWED_LABELS     - comma-separated label names (optional filter hint)
  *   OUTPUT_PATH        - default: triage-result.json
  */
-import { readFile, writeFile } from "node:fs/promises";
+import { access, readFile, writeFile } from "node:fs/promises";
 import { Agent, CursorAgentError } from "@cursor/sdk";
 
 const MARKER = "<!-- cursor-issue-diagnosis -->";
@@ -35,26 +35,76 @@ async function readIssueField(envName, fileEnvName) {
   return process.env[envName] ?? "";
 }
 
+/**
+ * Extract the first top-level JSON object, respecting strings so nested
+ * markdown fences like ```javascript inside "diagnosis" do not break parsing.
+ */
 function extractJson(text) {
   if (!text || typeof text !== "string") {
     throw new Error("Empty agent result");
   }
 
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = fenced ? fenced[1].trim() : text.trim();
-
-  // Prefer first {...} object if there is surrounding prose
-  const start = candidate.indexOf("{");
-  const end = candidate.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) {
+  const start = text.indexOf("{");
+  if (start === -1) {
     throw new Error("No JSON object found in agent output");
   }
 
-  const sliced = candidate.slice(start, end + 1);
-  return JSON.parse(sliced);
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+
+    if (inString) {
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (c === "\\") {
+        escape = true;
+        continue;
+      }
+      if (c === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (c === '"') {
+      inString = true;
+      continue;
+    }
+    if (c === "{") {
+      depth += 1;
+      continue;
+    }
+    if (c === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        const sliced = text.slice(start, i + 1);
+        return JSON.parse(sliced);
+      }
+    }
+  }
+
+  throw new Error("Unterminated JSON object in agent output");
 }
 
-function buildPrompt({ title, body, allowedLabels }) {
+function normalizeTriage(parsed) {
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("Triage payload is not an object");
+  }
+  if (!Array.isArray(parsed.labels) || typeof parsed.diagnosis !== "string") {
+    throw new Error('JSON must include array "labels" and string "diagnosis"');
+  }
+  return {
+    labels: parsed.labels.map((l) => String(l).trim()).filter(Boolean),
+    diagnosis: parsed.diagnosis.trim(),
+  };
+}
+
+function buildPrompt({ title, body, allowedLabels, outputPath }) {
   const labelHint =
     allowedLabels.length > 0
       ? allowedLabels.join(", ")
@@ -65,7 +115,8 @@ function buildPrompt({ title, body, allowedLabels }) {
 TAREA
 1. Lee el código del repositorio en el cwd actual para contextualizar el issue.
 2. Clasifica el issue y produce un diagnóstico accionable para implementar la solución después.
-3. NO modifiques ningún archivo. NO abras PRs. NO ejecutes git commit/push.
+3. Escribe el resultado en el archivo "${outputPath}" en el cwd (ÚNICO archivo que puedes crear/modificar).
+4. NO modifiques ningún otro archivo. NO abras PRs. NO ejecutes git commit/push.
 
 ISSUE #${process.env.ISSUE_NUMBER ?? "?"} en ${process.env.REPO ?? "repo"}
 Título: ${title}
@@ -76,23 +127,36 @@ ${body || "(sin cuerpo)"}
 LABELS PERMITIDOS (elige solo de esta lista; 1–3 labels):
 ${labelHint}
 
-RESPUESTA
-Devuelve ÚNICAMENTE un objeto JSON válido (puedes envolverlo en un fence \`\`\`json) con exactamente estas claves:
+CONTENIDO DE ${outputPath}
+Objeto JSON válido con exactamente estas claves:
 {
   "labels": ["bug"],
   "diagnosis": "markdown en español"
 }
 
-El campo "diagnosis" debe ser Markdown en español con estas secciones (usa ##):
-## Resumen
-## Causa probable / alcance
-## Archivos relevantes
-## Pasos de implementación sugeridos
-## Riesgos / casos borde
+Reglas del JSON:
+- "diagnosis" es un string JSON: usa \\n para saltos de línea (no saltos literales sin escapar).
+- Dentro de "diagnosis" NO uses fences markdown de código (evita \`\`\`); usa indentación o backticks simples de una línea.
+- El campo "diagnosis" debe ser Markdown en español con estas secciones (usa ##):
+  ## Resumen
+  ## Causa probable / alcance
+  ## Archivos relevantes
+  ## Pasos de implementación sugeridos
+  ## Riesgos / casos borde
+- Diagnóstico concreto (funciones, archivos, comportamiento esperado).
+- No inventes labels fuera de la lista permitida.
 
-El diagnóstico debe ser concreto (funciones, archivos, comportamiento esperado) para que otro agente o humano pueda implementar la fix después.
-No inventes labels fuera de la lista permitida.
-No incluyas texto fuera del JSON.`;
+Al terminar, también puedes repetir el mismo JSON en tu respuesta final.`;
+}
+
+async function tryReadOutputFile(outputPath) {
+  try {
+    await access(outputPath);
+    const raw = await readFile(outputPath, "utf8");
+    return normalizeTriage(JSON.parse(raw));
+  } catch {
+    return null;
+  }
 }
 
 async function main() {
@@ -109,7 +173,7 @@ async function main() {
     .map((s) => s.trim())
     .filter(Boolean);
 
-  const prompt = buildPrompt({ title, body, allowedLabels });
+  const prompt = buildPrompt({ title, body, allowedLabels, outputPath });
 
   let result;
   try {
@@ -133,34 +197,32 @@ async function main() {
     process.exit(2);
   }
 
-  const raw = result.result ?? "";
+  const raw = String(result.result ?? "");
   console.log("--- agent raw output (truncated) ---");
-  console.log(String(raw).slice(0, 2000));
+  console.log(raw.slice(0, 2000));
 
-  let parsed;
-  try {
-    parsed = extractJson(String(raw));
-  } catch (err) {
-    console.error(`Failed to parse agent JSON: ${err.message}`);
-    process.exit(2);
+  let normalized = await tryReadOutputFile(outputPath);
+  if (normalized) {
+    console.log(`Loaded triage from ${outputPath}`);
+  } else {
+    try {
+      normalized = normalizeTriage(extractJson(raw));
+      console.log("Parsed triage from agent text output");
+    } catch (err) {
+      console.error(`Failed to parse agent JSON: ${err.message}`);
+      process.exit(2);
+    }
   }
 
-  if (!Array.isArray(parsed.labels) || typeof parsed.diagnosis !== "string") {
-    console.error('JSON must include array "labels" and string "diagnosis"');
-    process.exit(2);
-  }
-
-  // Restrict to allowed labels when provided
-  let labels = parsed.labels.map((l) => String(l).trim()).filter(Boolean);
+  let labels = normalized.labels;
   if (allowedLabels.length > 0) {
     const allowed = new Set(allowedLabels.map((l) => l.toLowerCase()));
     labels = labels.filter((l) => allowed.has(l.toLowerCase()));
   }
 
-  const diagnosis = parsed.diagnosis.trim();
   const payload = {
     labels,
-    diagnosis,
+    diagnosis: normalized.diagnosis,
     marker: MARKER,
   };
 
