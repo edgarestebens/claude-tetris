@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -8,7 +8,17 @@
 </head>
 <body>
   <div class="wrapper">
-    <h1 class="game-title">TETRIS</h1>
+    <div class="header-row">
+      <h1 class="game-title">TETRIS</h1>
+      <div class="theme-toggle">
+        <span class="theme-icon theme-icon-dark">🌙</span>
+        <label class="theme-switch" role="switch" aria-checked="false">
+          <input type="checkbox" id="theme-toggle-input" aria-label="Cambiar a modo claro">
+          <span class="theme-slider"></span>
+        </label>
+        <span class="theme-icon theme-icon-light">☀️</span>
+      </div>
+    </div>
     <div class="game-container">
       <canvas id="board" width="300" height="600"></canvas>
 
