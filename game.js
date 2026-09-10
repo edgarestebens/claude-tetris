@@ -50,9 +50,25 @@ const levelEl = document.getElementById('level');
 const overlay = document.getElementById('overlay');
 const overlayTitle = document.getElementById('overlay-title');
 const overlayScore = document.getElementById('overlay-score');
+const gameoverView = document.getElementById('gameover-view');
+const pauseView = document.getElementById('pause-view');
+const pauseMain = document.getElementById('pause-main');
+const controlsPanel = document.getElementById('controls-panel');
 const restartBtn = document.getElementById('restart-btn');
+const resumeBtn = document.getElementById('resume-btn');
+const pauseRestartBtn = document.getElementById('pause-restart-btn');
+const controlsBtn = document.getElementById('controls-btn');
+const controlsBackBtn = document.getElementById('controls-back-btn');
+const levelDownBtn = document.getElementById('level-down');
+const levelUpBtn = document.getElementById('level-up');
+const startLevelValue = document.getElementById('start-level-value');
+
+const MIN_START_LEVEL = 1;
+const MAX_START_LEVEL = 15;
 
 let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, bombsQueued;
+let startLevel = 1;
+let pauseShowingControls = false;
 
 function createBoard() {
   return Array.from({ length: ROWS }, () => new Array(COLS).fill(0));
@@ -133,8 +149,8 @@ function clearLines() {
     const prevLines = lines;
     lines += cleared;
     score += (LINE_SCORES[cleared] || 0) * level;
-    level = Math.floor(lines / 10) + 1;
-    dropInterval = Math.max(100, 1000 - (level - 1) * 90);
+    level = startLevel + Math.floor(lines / 10);
+    dropInterval = dropIntervalForLevel(level);
     const prevTier = Math.floor(prevLines / POWERUP_EVERY);
     const newTier = Math.floor(lines / POWERUP_EVERY);
     if (newTier > prevTier) bombsQueued += newTier - prevTier;
@@ -274,26 +290,91 @@ function drawNext() {
       drawBlock(nextCtx, offX + c, offY + r, shape[r][c], NB);
 }
 
-function endGame() {
-  gameOver = true;
-  cancelAnimationFrame(animId);
+function hideOverlayViews() {
+  gameoverView.classList.add('hidden');
+  pauseView.classList.add('hidden');
+  pauseMain.classList.remove('hidden');
+  controlsPanel.classList.add('hidden');
+  pauseShowingControls = false;
+}
+
+function showGameOverOverlay() {
+  hideOverlayViews();
   overlayTitle.textContent = 'GAME OVER';
   overlayScore.textContent = `Puntuación: ${score.toLocaleString()}`;
+  gameoverView.classList.remove('hidden');
   overlay.classList.remove('hidden');
+}
+
+function showPauseOverlay() {
+  hideOverlayViews();
+  updateStartLevelUI();
+  pauseView.classList.remove('hidden');
+  overlay.classList.remove('hidden');
+}
+
+function hideOverlay() {
+  overlay.classList.add('hidden');
+  hideOverlayViews();
+}
+
+function updateStartLevelUI() {
+  startLevelValue.textContent = String(startLevel);
+  levelDownBtn.disabled = startLevel <= MIN_START_LEVEL;
+  levelUpBtn.disabled = startLevel >= MAX_START_LEVEL;
+}
+
+function setStartLevel(nextLevel) {
+  startLevel = Math.min(MAX_START_LEVEL, Math.max(MIN_START_LEVEL, nextLevel));
+  updateStartLevelUI();
+}
+
+function showControlsInPause() {
+  pauseShowingControls = true;
+  pauseMain.classList.add('hidden');
+  controlsPanel.classList.remove('hidden');
+}
+
+function hideControlsInPause() {
+  pauseShowingControls = false;
+  controlsPanel.classList.add('hidden');
+  pauseMain.classList.remove('hidden');
+}
+
+function resumeGame() {
+  if (!paused || gameOver) return;
+  paused = false;
+  hideOverlay();
+  lastTime = performance.now();
+  dropAccum = 0;
+  animId = requestAnimationFrame(loop);
+}
+
+function pauseGame() {
+  if (paused || gameOver) return;
+  paused = true;
+  cancelAnimationFrame(animId);
+  showPauseOverlay();
 }
 
 function togglePause() {
   if (gameOver) return;
-  paused = !paused;
-  if (!paused) {
-    lastTime = performance.now();
-    loop(lastTime);
+  if (paused) {
+    if (pauseShowingControls) {
+      hideControlsInPause();
+      return;
+    }
+    resumeGame();
   } else {
-    cancelAnimationFrame(animId);
-    overlayTitle.textContent = 'PAUSA';
-    overlayScore.textContent = '';
-    overlay.classList.remove('hidden');
+    pauseGame();
   }
+}
+
+function endGame() {
+  gameOver = true;
+  paused = false;
+  cancelAnimationFrame(animId);
+  showGameOverOverlay();
 }
 
 function loop(ts) {
@@ -315,28 +396,42 @@ function loop(ts) {
   animId = requestAnimationFrame(loop);
 }
 
+function dropIntervalForLevel(lvl) {
+  return Math.max(100, 1000 - (lvl - 1) * 90);
+}
+
 function init() {
   board = createBoard();
   score = 0;
   lines = 0;
-  level = 1;
+  level = startLevel;
   paused = false;
   gameOver = false;
-  dropInterval = 1000;
+  dropInterval = dropIntervalForLevel(level);
   dropAccum = 0;
   bombsQueued = 0;
   lastTime = performance.now();
   next = randomPiece();
   spawn();
   updateHUD();
-  overlay.classList.add('hidden');
+  hideOverlay();
   cancelAnimationFrame(animId);
   animId = requestAnimationFrame(loop);
 }
 
 document.addEventListener('keydown', e => {
-  if (e.code === 'KeyP') { togglePause(); return; }
-  if (paused || gameOver) return;
+  if (e.code === 'KeyP' || e.code === 'Escape') {
+    e.preventDefault();
+    togglePause();
+    return;
+  }
+
+  // Block gameplay inputs while pause menu or game over is showing
+  if (paused || gameOver) {
+    if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+    return;
+  }
+
   switch (e.code) {
     case 'ArrowLeft':
       if (!collide(current.shape, current.x - 1, current.y)) current.x--;
@@ -360,6 +455,12 @@ document.addEventListener('keydown', e => {
 });
 
 restartBtn.addEventListener('click', init);
+resumeBtn.addEventListener('click', resumeGame);
+pauseRestartBtn.addEventListener('click', init);
+controlsBtn.addEventListener('click', showControlsInPause);
+controlsBackBtn.addEventListener('click', hideControlsInPause);
+levelDownBtn.addEventListener('click', () => setStartLevel(startLevel - 1));
+levelUpBtn.addEventListener('click', () => setStartLevel(startLevel + 1));
 
 const themeToggle = document.getElementById('theme-toggle-input');
 const themeSwitch = themeToggle.parentElement;
