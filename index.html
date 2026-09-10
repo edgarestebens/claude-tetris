@@ -52,14 +52,14 @@
             <li><kbd>↑</kbd> rotar</li>
             <li><kbd>↓</kbd> bajar</li>
             <li><kbd>Space</kbd> caída</li>
-            <li><kbd>P</kbd> pausa</li>
+            <li><kbd>P</kbd>/<kbd>Esc</kbd> pausa</li>
           </ul>
         </div>
       </aside>
     </div>
 
     <div id="overlay" class="overlay">
-      <div class="overlay-box">
+      <div id="main-view" class="overlay-box">
         <p id="overlay-title">TETRIS</p>
         <p id="overlay-score"></p>
         <p id="new-record-msg" class="new-record-msg hidden">¡Nuevo récord!</p>
@@ -82,7 +82,47 @@
           <button type="button" id="reset-records-btn" class="btn-secondary">Resetear records</button>
         </div>
 
-        <button id="restart-btn">Jugar</button>
+        <div class="level-selector level-selector-inline">
+          <span class="level-selector-label">Nivel inicial</span>
+          <div class="level-controls">
+            <button type="button" id="ss-level-down" class="level-step" aria-label="Bajar nivel inicial">‹</button>
+            <span id="ss-start-level-value" class="start-level-value">1</span>
+            <button type="button" id="ss-level-up" class="level-step" aria-label="Subir nivel inicial">›</button>
+          </div>
+        </div>
+
+        <button type="button" id="restart-btn" class="menu-btn menu-btn-primary">Jugar</button>
+      </div>
+
+      <div id="pause-view" class="overlay-box pause-box hidden">
+        <p class="overlay-heading">PAUSA</p>
+
+        <nav id="pause-main" class="pause-menu" aria-label="Menú de pausa">
+          <button type="button" id="resume-btn" class="pause-item is-primary">Reanudar</button>
+          <button type="button" id="pause-restart-btn" class="pause-item">Reiniciar</button>
+          <button type="button" id="controls-btn" class="pause-item">Ver controles</button>
+
+          <div class="level-selector">
+            <span class="level-selector-label">Nivel inicial</span>
+            <div class="level-controls">
+              <button type="button" id="level-down" class="level-step" aria-label="Bajar nivel inicial">‹</button>
+              <span id="start-level-value" class="start-level-value">1</span>
+              <button type="button" id="level-up" class="level-step" aria-label="Subir nivel inicial">›</button>
+            </div>
+            <p class="level-hint">Próxima partida</p>
+          </div>
+        </nav>
+
+        <div id="controls-panel" class="controls-panel hidden">
+          <ul class="controls-list">
+            <li><span class="ctrl-keys"><kbd>←</kbd><kbd>→</kbd></span><span>mover</span></li>
+            <li><span class="ctrl-keys"><kbd>↑</kbd><kbd>X</kbd></span><span>rotar</span></li>
+            <li><span class="ctrl-keys"><kbd>↓</kbd></span><span>bajar</span></li>
+            <li><span class="ctrl-keys"><kbd>Space</kbd></span><span>caída dura</span></li>
+            <li><span class="ctrl-keys"><kbd>P</kbd><kbd>Esc</kbd></span><span>pausa</span></li>
+          </ul>
+          <button type="button" id="controls-back-btn" class="pause-item is-primary">Volver</button>
+        </div>
       </div>
     </div>
   </div>
