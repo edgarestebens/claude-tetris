@@ -4,25 +4,195 @@ const COLS = 10;
 const ROWS = 20;
 const BLOCK = 30;
 
-const COLORS = [
-  null,
-  '#4dd0e1', // I - cyan
-  '#ffd54f', // O - yellow
-  '#ba68c8', // T - purple
-  '#81c784', // S - green
-  '#e57373', // Z - red
-  '#90caf9', // J - pale blue
-  '#ffb74d', // L - orange
-  '#90a4ae', // Nut - metallic
-  '#ff1744', // Bomb - red
-];
+const SKIN_STORAGE_KEY = 'tetris-skin';
 
-const THEME_GRID = {
-  dark: '#22222e',
-  light: '#d0d0dc'
+function drawBombMark(context, x, y, size) {
+  context.fillStyle = 'rgba(255,255,255,0.85)';
+  context.beginPath();
+  context.arc(x * size + size / 2, y * size + size / 2, size * 0.18, 0, Math.PI * 2);
+  context.fill();
+}
+
+function fillRoundRect(context, x, y, w, h, radius) {
+  const r = Math.min(radius, w / 2, h / 2);
+  context.beginPath();
+  context.moveTo(x + r, y);
+  context.arcTo(x + w, y, x + w, y + h, r);
+  context.arcTo(x + w, y + h, x, y + h, r);
+  context.arcTo(x, y + h, x, y, r);
+  context.arcTo(x, y, x + w, y, r);
+  context.closePath();
+  context.fill();
+}
+
+function shadeColor(hex, amount) {
+  const n = hex.replace('#', '');
+  const num = parseInt(n.length === 3 ? n.split('').map(c => c + c).join('') : n, 16);
+  const clamp = v => Math.max(0, Math.min(255, v));
+  const r = clamp(((num >> 16) & 255) + amount);
+  const g = clamp(((num >> 8) & 255) + amount);
+  const b = clamp((num & 255) + amount);
+  return `rgb(${r},${g},${b})`;
+}
+
+const SKINS = {
+  retro: {
+    id: 'retro',
+    label: 'Retro',
+    colors: [
+      null,
+      '#4dd0e1',
+      '#ffd54f',
+      '#ba68c8',
+      '#81c784',
+      '#e57373',
+      '#90caf9',
+      '#ffb74d',
+      '#90a4ae',
+      '#ff1744',
+    ],
+    grid: { dark: '#22222e', light: '#d0d0dc' },
+    drawBlock(context, x, y, colorIndex, size, alpha) {
+      if (!colorIndex) return;
+      const color = this.colors[colorIndex];
+      context.globalAlpha = alpha ?? 1;
+      context.fillStyle = color;
+      context.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
+      if (colorIndex === BOMB_TYPE) {
+        drawBombMark(context, x, y, size);
+      } else {
+        context.fillStyle = 'rgba(255,255,255,0.12)';
+        context.fillRect(x * size + 1, y * size + 1, size - 2, 4);
+      }
+      context.globalAlpha = 1;
+    },
+  },
+  neon: {
+    id: 'neon',
+    label: 'Neon',
+    colors: [
+      null,
+      '#00fff2',
+      '#ffe600',
+      '#d500f9',
+      '#39ff14',
+      '#ff073a',
+      '#00b7ff',
+      '#ff9100',
+      '#b0bec5',
+      '#ff1744',
+    ],
+    grid: { dark: '#111118', light: '#1a1a22' },
+    drawBlock(context, x, y, colorIndex, size, alpha) {
+      if (!colorIndex) return;
+      const color = this.colors[colorIndex];
+      const px = x * size + 2;
+      const py = y * size + 2;
+      const s = size - 4;
+      context.save();
+      context.globalAlpha = alpha ?? 1;
+      context.shadowBlur = alpha != null && alpha < 1 ? 6 : 14;
+      context.shadowColor = color;
+      context.fillStyle = color;
+      context.fillRect(px, py, s, s);
+      context.shadowBlur = 0;
+      if (colorIndex === BOMB_TYPE) {
+        drawBombMark(context, x, y, size);
+      } else {
+        context.fillStyle = 'rgba(255,255,255,0.35)';
+        context.fillRect(px, py, s, 3);
+        context.fillStyle = 'rgba(0,0,0,0.25)';
+        context.fillRect(px, py + s - 3, s, 3);
+      }
+      context.restore();
+    },
+  },
+  pastel: {
+    id: 'pastel',
+    label: 'Pastel',
+    colors: [
+      null,
+      '#a8e6cf',
+      '#ffe66d',
+      '#d4a5ff',
+      '#b5ead7',
+      '#ffb3ba',
+      '#a2d2ff',
+      '#ffd6a5',
+      '#cfd8dc',
+      '#ff8a80',
+    ],
+    grid: { dark: '#2a2a36', light: '#e0dce8' },
+    drawBlock(context, x, y, colorIndex, size, alpha) {
+      if (!colorIndex) return;
+      const color = this.colors[colorIndex];
+      const px = x * size + 1.5;
+      const py = y * size + 1.5;
+      const s = size - 3;
+      const radius = Math.max(4, size * 0.22);
+      context.save();
+      context.globalAlpha = alpha ?? 1;
+      context.fillStyle = color;
+      fillRoundRect(context, px, py, s, s, radius);
+      if (colorIndex === BOMB_TYPE) {
+        drawBombMark(context, x, y, size);
+      } else {
+        context.fillStyle = 'rgba(255,255,255,0.35)';
+        fillRoundRect(context, px + 2, py + 2, s - 4, Math.max(3, s * 0.22), radius * 0.6);
+      }
+      context.restore();
+    },
+  },
+  pixel: {
+    id: 'pixel',
+    label: 'Pixel art',
+    colors: [
+      null,
+      '#22d3ee',
+      '#facc15',
+      '#c084fc',
+      '#4ade80',
+      '#f87171',
+      '#60a5fa',
+      '#fb923c',
+      '#94a3b8',
+      '#ef4444',
+    ],
+    grid: { dark: '#1e1e28', light: '#c8c8d4' },
+    drawBlock(context, x, y, colorIndex, size, alpha) {
+      if (!colorIndex) return;
+      const color = this.colors[colorIndex];
+      const dark = shadeColor(color, -40);
+      const light = shadeColor(color, 35);
+      const cells = 4;
+      const cell = (size - 2) / cells;
+      const ox = x * size + 1;
+      const oy = y * size + 1;
+      context.save();
+      context.globalAlpha = alpha ?? 1;
+      for (let py = 0; py < cells; py++) {
+        for (let px = 0; px < cells; px++) {
+          const edge = px === 0 || py === 0 || px === cells - 1 || py === cells - 1;
+          const checker = (px + py) % 2 === 0;
+          if (edge) context.fillStyle = dark;
+          else context.fillStyle = checker ? light : color;
+          context.fillRect(
+            Math.floor(ox + px * cell),
+            Math.floor(oy + py * cell),
+            Math.ceil(cell),
+            Math.ceil(cell)
+          );
+        }
+      }
+      if (colorIndex === BOMB_TYPE) {
+        drawBombMark(context, x, y, size);
+      }
+      context.restore();
+    },
+  },
 };
 
-let currentTheme = 'dark';
+let activeSkin = SKINS.retro;
 
 const PIECES = [
   null,
@@ -51,8 +221,10 @@ const overlay = document.getElementById('overlay');
 const overlayTitle = document.getElementById('overlay-title');
 const overlayScore = document.getElementById('overlay-score');
 const restartBtn = document.getElementById('restart-btn');
+const skinSelect = document.getElementById('skin-select');
 
 let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId, bombsQueued;
+let currentTheme = 'dark';
 
 function createBoard() {
   return Array.from({ length: ROWS }, () => new Array(COLS).fill(0));
@@ -207,25 +379,12 @@ function updateHUD() {
 }
 
 function drawBlock(context, x, y, colorIndex, size, alpha) {
-  if (!colorIndex) return;
-  const color = COLORS[colorIndex];
-  context.globalAlpha = alpha ?? 1;
-  context.fillStyle = color;
-  context.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
-  if (colorIndex === BOMB_TYPE) {
-    context.fillStyle = 'rgba(255,255,255,0.85)';
-    context.beginPath();
-    context.arc(x * size + size / 2, y * size + size / 2, size * 0.18, 0, Math.PI * 2);
-    context.fill();
-  } else {
-    context.fillStyle = 'rgba(255,255,255,0.12)';
-    context.fillRect(x * size + 1, y * size + 1, size - 2, 4);
-  }
-  context.globalAlpha = 1;
+  activeSkin.drawBlock(context, x, y, colorIndex, size, alpha);
 }
 
 function drawGrid() {
-  ctx.strokeStyle = THEME_GRID[currentTheme];
+  const themeKey = activeSkin.id === 'neon' ? 'dark' : currentTheme;
+  ctx.strokeStyle = activeSkin.grid[themeKey] || activeSkin.grid.dark;
   ctx.lineWidth = 0.5;
   for (let c = 1; c < COLS; c++) {
     ctx.beginPath();
@@ -245,22 +404,20 @@ function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   drawGrid();
 
-  // board
   for (let r = 0; r < ROWS; r++)
     for (let c = 0; c < COLS; c++)
       drawBlock(ctx, c, r, board[r][c], BLOCK);
 
-  // ghost
   const gy = ghostY();
   for (let r = 0; r < current.shape.length; r++)
     for (let c = 0; c < current.shape[r].length; c++)
       if (current.shape[r][c])
         drawBlock(ctx, current.x + c, gy + r, current.shape[r][c], BLOCK, 0.2);
 
-  // current piece
   for (let r = 0; r < current.shape.length; r++)
     for (let c = 0; c < current.shape[r].length; c++)
-      drawBlock(ctx, current.x + c, current.y + r, current.shape[r][c], BLOCK);
+      if (current.shape[r][c])
+        drawBlock(ctx, current.x + c, current.y + r, current.shape[r][c], BLOCK);
 }
 
 function drawNext() {
@@ -386,5 +543,37 @@ themeToggle.addEventListener('change', () => {
   applyTheme(newTheme);
 });
 
+function applySkin(skinId) {
+  const skin = SKINS[skinId] || SKINS.retro;
+  activeSkin = skin;
+  document.documentElement.dataset.skin = skin.id;
+  if (skinSelect) skinSelect.value = skin.id;
+  if (board) {
+    draw();
+    drawNext();
+  } else if (next) {
+    drawNext();
+  }
+}
+
+function initSkin() {
+  const saved = localStorage.getItem(SKIN_STORAGE_KEY);
+  applySkin(saved && SKINS[saved] ? saved : 'retro');
+}
+
+if (skinSelect) {
+  for (const skin of Object.values(SKINS)) {
+    const option = document.createElement('option');
+    option.value = skin.id;
+    option.textContent = skin.label;
+    skinSelect.appendChild(option);
+  }
+  skinSelect.addEventListener('change', () => {
+    localStorage.setItem(SKIN_STORAGE_KEY, skinSelect.value);
+    applySkin(skinSelect.value);
+  });
+}
+
 initTheme();
+initSkin();
 init();

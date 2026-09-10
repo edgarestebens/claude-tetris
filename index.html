@@ -10,13 +10,19 @@
   <div class="wrapper">
     <div class="header-row">
       <h1 class="game-title">TETRIS</h1>
-      <div class="theme-toggle">
-        <span class="theme-icon theme-icon-dark">🌙</span>
-        <label class="theme-switch" role="switch" aria-checked="false">
-          <input type="checkbox" id="theme-toggle-input" aria-label="Cambiar a modo claro">
-          <span class="theme-slider"></span>
-        </label>
-        <span class="theme-icon theme-icon-light">☀️</span>
+      <div class="header-controls">
+        <div class="skin-picker">
+          <label class="skin-label" for="skin-select">SKIN</label>
+          <select id="skin-select" aria-label="Seleccionar skin visual"></select>
+        </div>
+        <div class="theme-toggle">
+          <span class="theme-icon theme-icon-dark">🌙</span>
+          <label class="theme-switch" role="switch" aria-checked="false">
+            <input type="checkbox" id="theme-toggle-input" aria-label="Cambiar a modo claro">
+            <span class="theme-slider"></span>
+          </label>
+          <span class="theme-icon theme-icon-light">☀️</span>
+        </div>
       </div>
     </div>
     <div class="game-container">
